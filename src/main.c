@@ -24,6 +24,7 @@ int main(void) {
         printf("1) Play song manually\n");
         printf("2) Receive song name via UDP JSON\n");
         printf("3) Exit\n> ");
+	  printf("4) Emulate UDP from file\n");
         fflush(stdout);
 
         if (!fgets(choice, sizeof(choice), stdin))
@@ -63,6 +64,8 @@ int main(void) {
         } else if (ch == 3) {
             printf("Exiting program.\n");
             break;
+	  } else if (ch == 4) {
+    		emulate_udp_from_file("udp_emulation.txt");
         } else {
             printf("Invalid choice. Try again.\n");
         }

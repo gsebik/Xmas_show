@@ -1,5 +1,7 @@
-﻿#include "udp.h"
+﻿#include “player.h”
+#include "udp.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -46,4 +48,34 @@ int receive_udp_song(char *song_out, size_t len) {
     printf("Parsed song name: '%s'\n", song_out);
     close(sock);
     return 0;
+}
+
+void emulate_udp_from_file(const char *filename) {
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        perror("emulate_udp_from_file open");
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char song[128] = {0};
+
+        // Parse very simple JSON: {"song":"name"}
+        char *p = strstr(line, "\"song\"");
+        if (!p) continue;
+        p = strchr(p, ':');
+        if (!p) continue;
+        p++;
+        while (*p && (*p == ' ' || *p == '"' || *p == '\'')) p++;
+        char *end = p;
+        while (*end && *end != '"' && *end != '\'' && *end != '}') end++;
+        *end = '\0';
+        strncpy(song, p, sizeof(song)-1);
+
+        printf("Emulated UDP: received song '%s'\n", song);
+        play_song(song);  // use your existing playback logic
+    }
+
+    fclose(f);
 }
