@@ -13,9 +13,6 @@
 
 int main(int argc, char *argv[]) {
 
-    char wav_path[256];
-    char txt_path[256];
-
     printf("Initializing GPIO...\n");
     gpio_init();
     gpio_set_outputs(led_lines, 8);

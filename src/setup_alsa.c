@@ -38,7 +38,7 @@ void setup_alsa(unsigned int sample_rate, unsigned int channels) {
     memset(silence, 0, sizeof(silence));
 
     // Write several silent periods to fully flush old data
-    for (int i  0; i < 4; i++)
+    for (int i = 0; i < 4; i++)
     {
 	    snd_pcm_writei(pcm, silence, AUDIO_PERIOD_FRAMES);
     }
