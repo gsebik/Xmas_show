@@ -14,7 +14,7 @@ typedef struct {
 extern Pattern patterns[MAX_PATTERNS];
 extern int pattern_count;
 
-typdef struct {
+typedef struct {
     uint32_t sample_rate;
     uint16_t channels;
     size_t frames;

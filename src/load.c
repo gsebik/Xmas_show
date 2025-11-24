@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 #pragma pack(push, 1)
 typedef struct {
     char     riff_id[4];   // "RIFF"
