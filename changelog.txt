@@ -1,3 +1,9 @@
 11.24.2025
  - wav memory allocation now dynamically done with mmap (was 480 MB RAM
  allocated, which was almost out of bounds and broke the program)
+
+ - mlock for audio, so no demand paging (a.k.a. lazy loading), whole .wav is
+ loaded into the RAM, avoiding flash page faults. Added optional
+ mlockall, so all of the code and data can be loaded into the RAM.
+
+ - replaced fprintf() logging with syslog. Will need a proper logging thread.

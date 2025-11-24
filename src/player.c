@@ -17,7 +17,6 @@
 #define AUDIO_THREAD_PERIOD_MS 30
 #define LED_THREAD_PERIOD_MS 10
 #define MAX_RUNS 60000
-#define MAX_AUDIO_FRAMES 120000000
 
 #define PREFILL_PERIODS      4
 #define MIN_BUFFER_PERIODS   1
@@ -136,7 +135,7 @@ static void *audio_thread_fn(void *arg) {
             if (written < 0) {
                 underrun_count++;
                 if (underrun_count <= 10 || underrun_count % 50 == 0)
-                    fprintf(stderr, "Underrun #%d: %s\n",
+                    syslog(LOG_WARNING, "Underrun #%d: %s",
                             underrun_count, snd_strerror(written));
                 snd_pcm_prepare(pcm);
 
@@ -157,7 +156,7 @@ static void *audio_thread_fn(void *arg) {
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         long jitter = time_diff_us(next_time, start_time);
         if (jitter < 0)
-            fprintf(stderr, "Deadline miss at cycle %zu by %ld us\n",
+            syslog(LOG_ERR, "Deadline miss at cycle %zu by %ld us\n",
                     runtime_index, -jitter);
 
         runtimes_us[runtime_index] = total_runtime_us;
@@ -167,7 +166,7 @@ static void *audio_thread_fn(void *arg) {
         if (runtime_index % 100 == 0) {
             snd_pcm_sframes_t delay;
             if (snd_pcm_delay(pcm, &delay) == 0) {
-                fprintf(stderr, "[Cycle %zu] ALSA delay: %ld frames (%.2f ms)\n",
+                syslog(LOG_INFO, "[Cycle %zu] ALSA delay: %ld frames (%.2f ms)\n",
                         runtime_index, delay,
                         (delay * 1000.0) / 44100.0);
             }
@@ -188,15 +187,7 @@ static void *audio_thread_fn(void *arg) {
 // --------------------------------------------------------------
 // LED thread
 // --------------------------------------------------------------
-static void *led_thread_fn(void *arg) {
-    const char *log_name = (const char *)arg;
-    FILE *log = fopen(log_name, "w");
-    if (!log) {
-        perror("LED log fopen");
-        return NULL;
-    }
-
-    fprintf(log, "tick,time_us,write_time_us\n");
+static void *led_thread_fn(void *arg) {  
 
     int current_index = 0, tick_count = 0, ticks_for_current = 0;
     struct timespec start, next_time;
@@ -254,7 +245,7 @@ static void *led_thread_fn(void *arg) {
             ticks_for_current = duration / LED_THREAD_PERIOD_MS;
             tick_count = ticks_for_current;
 
-            fprintf(log, "%d,%ld,%ld\n",
+            syslog(LOG_DEBUG, "%d,%ld,%ld\n",
                     tick,
                     time_diff_us(start, tick_start),
                     time_diff_us(write_start, write_end));
@@ -271,7 +262,6 @@ static void *led_thread_fn(void *arg) {
         }
     }
 
-    fclose(log);
     return NULL;
 }
 
@@ -292,10 +282,26 @@ void play_song(const char *base_name) {
     reset_runtime_state();
 
     wav = load_wav_mmap(wav_file);
+    if (mlock(wav.mapping, wav.mapping_size) != 0) {
+        perror("mlock failed");
+	// avoids Linux demand paging (a.k.a. lazy loading), 4 kB/s disk -> RAM.
+	// locks all the song into RAM, negating the effects of flash page faults
+	// in case of error program may continue, but audio is now soft-RT instead of hard-RT
+    }
+
+
     uint32_t sample_rate = wav.sample_rate;
     uint16_t channels    = wav.channels;
     load_patterns(pattern_file);
     setup_alsa(sample_rate, channels);
+
+// Hard lock. Uncomment only for full lock for 'harder' RT behaviour.
+//    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+//        perror("mlockall failed");
+//	// locks everything into RAM (including code, data, libraries, stacks of RT threads)
+//	// may continue, but becomes soft-rt
+    
+//    }
 
     pthread_t audio_thread, led_thread;
 

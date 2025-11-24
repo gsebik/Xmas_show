@@ -6,12 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <syslog.h>
 
 #define MAX_SONG_NAME 64
 
 
 
 int main(int argc, char *argv[]) {
+
+    openlog("sequencer", LOG_PID | LOG_CONS, LOG_USER);
 
     printf("Initializing GPIO...\n");
     gpio_init();
@@ -83,5 +86,8 @@ int main(int argc, char *argv[]) {
 
     gpio_cleanup();
     printf("GPIO cleaned up. Goodbye.\n");
+
+    closelog();
+
     return 0;
 }
