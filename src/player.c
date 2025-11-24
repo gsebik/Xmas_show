@@ -13,6 +13,9 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#include <syslog.h>
+#include <sys/mman.h>
+
 #define AUDIO_PERIOD_FRAMES 441
 #define AUDIO_THREAD_PERIOD_MS 30
 #define LED_THREAD_PERIOD_MS 10
