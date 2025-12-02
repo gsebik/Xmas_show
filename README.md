@@ -12,7 +12,8 @@ A hard real-time LED and audio sequencer for Raspberry Pi. Synchronizes audio pl
 - LED thread: 10ms period, priority 80
 - Audio thread: 30ms period, priority 75
 - WAV files: mmap + mlock for hard real-time (no disk I/O during playback)
-- MP3 files: ring buffer with ~1 sec pre-buffer for soft real-time
+- MP3 files: ring buffer with ~3 sec pre-buffer for soft real-time
+- Graceful shutdown with immediate LED turn-off on SIGTERM/SIGINT
 - Optional UDP control mode
 - Timing and jitter logging
 
@@ -68,6 +69,12 @@ Note: Capabilities must be re-applied after each recompile.
 # Verbose mode (print timing stats)
 ./sequencer -v songname
 
+# Turn all LEDs on and exit
+./sequencer -s on
+
+# Turn all LEDs off and exit
+./sequencer -s off
+
 # Interactive menu mode
 ./sequencer
 ```
@@ -105,8 +112,20 @@ Example:
 - Audio output (3.5mm jack or HDMI)
 - ALSA-compatible audio
 
+## Signal Handling
+
+The sequencer handles SIGTERM and SIGINT for graceful shutdown:
+
+1. Signal handler immediately turns off all LEDs via GPIO
+2. Sets `stop_requested` flag for threads to check
+3. Threads exit their loops after current sleep cycle
+4. Main thread waits for threads to join
+5. Final GPIO cleanup and exit
+
+This ensures LEDs are turned off immediately when playback is stopped externally (e.g., via the v43 controller).
+
 ## Integration with v43-christmas-lights
 
-This sequencer is designed to work with the v43-christmas-lights Node.js controller. The controller spawns the sequencer as a child process for each song playback.
+This sequencer is designed to work with the v43-christmas-lights Node.js controller. The controller spawns the sequencer as a child process for each song playback and sends SIGTERM to stop playback.
 
 See `/home/linux/v43-christmas-lights/` for the controller setup.

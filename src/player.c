@@ -195,9 +195,12 @@ static void *audio_thread_fn(void *arg) {
         return NULL;
     }
 
-    while (!audio_finished(audio_stream) && audio_sample_index < MAX_RUNS) {
+    while (!audio_finished(audio_stream) && audio_sample_index < MAX_RUNS && !stop_requested) {
 
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_time, NULL);
+
+        // Check again after waking - signal may have arrived during sleep
+        if (stop_requested) break;
 
         struct timespec start_time, end_time;
         clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -303,8 +306,11 @@ static void *led_thread_fn(void *arg) {
     next_time = start;
 
     int tick = 0;
-    while (current_index < pattern_count) {
+    while (current_index < pattern_count && !stop_requested) {
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_time, NULL);
+
+        // Check again after waking - signal may have arrived during sleep
+        if (stop_requested) break;
 
         struct timespec tick_start, write_start, write_end;
         clock_gettime(CLOCK_MONOTONIC, &tick_start);
@@ -429,9 +435,12 @@ void play_song(const char *base_name) {
 #endif
 
     printf("\n=== Starting playback of '%s' ===\n", base_name);
+    printf("Pattern file: %s\n", pattern_file);
 
     reset_runtime_state();
     load_patterns(pattern_file);
+
+    printf("Loaded %d patterns\n", pattern_count);
 
     // Record start time (always needed for stats)
     clock_gettime(CLOCK_MONOTONIC, &playback_start_time);
@@ -484,7 +493,12 @@ void play_song(const char *base_name) {
     pthread_attr_setschedpolicy(&led_attr, SCHED_FIFO);
     pthread_attr_setschedparam(&led_attr, &led_param);
 
-    pthread_create(&led_thread, &led_attr, led_thread_fn, NULL);
+    int rc = pthread_create(&led_thread, &led_attr, led_thread_fn, NULL);
+    if (rc != 0) {
+        fprintf(stderr, "Warning: Failed to create LED thread with SCHED_FIFO (rc=%d), trying default\n", rc);
+        pthread_attr_init(&led_attr);
+        pthread_create(&led_thread, &led_attr, led_thread_fn, NULL);
+    }
 
     if (has_audio) {
         pthread_attr_t audio_attr;
@@ -493,7 +507,12 @@ void play_song(const char *base_name) {
         pthread_attr_setschedpolicy(&audio_attr, SCHED_FIFO);
         pthread_attr_setschedparam(&audio_attr, &audio_param);
 
-        pthread_create(&audio_thread, &audio_attr, audio_thread_fn, NULL);
+        rc = pthread_create(&audio_thread, &audio_attr, audio_thread_fn, NULL);
+        if (rc != 0) {
+            fprintf(stderr, "Warning: Failed to create audio thread with SCHED_FIFO (rc=%d), trying default\n", rc);
+            pthread_attr_init(&audio_attr);
+            pthread_create(&audio_thread, &audio_attr, audio_thread_fn, NULL);
+        }
         pthread_join(audio_thread, NULL);
     }
 

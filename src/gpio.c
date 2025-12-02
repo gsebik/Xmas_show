@@ -78,9 +78,12 @@ void gpio_set_outputs(const unsigned int *lines, int count) {
 }
 
 void gpio_all_off(const unsigned int *lines, int count) {
+    if (!gpio || gpio == MAP_FAILED)
+        return;
     volatile uint32_t *GPCLR0 = gpio + 0x28 / 4;
     uint32_t mask = 0;
     for (int i = 0; i < count; ++i)
         mask |= (1u << lines[i]);
     *GPCLR0 = mask;
+    __sync_synchronize();  // Memory barrier to ensure write completes
 }

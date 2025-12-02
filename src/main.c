@@ -8,6 +8,10 @@
  * Architecture:
  * =============
  *
+ *     [Main Thread]
+ *          |
+ *          | spawns
+ *          v
  *                     +-------------------+
  *                     |  Decoder Thread   | (MP3 only, normal priority)
  *                     |  - mpg123_read()  |
@@ -25,6 +29,7 @@
  * | SCHED_FIFO prio80 |   |  - audio_read()   |
  * | - 10ms tick rate  |   |  - ALSA writei()  |
  * | - GPIO mmap write |   |  - 30ms period    |
+ * | - checks stop_req |   |  - checks stop_req|
  * +-------------------+   +-------------------+
  *          |                       |
  *          v                       v
@@ -35,11 +40,16 @@
  * - Audio thread:   SCHED_FIFO priority 75, 30ms period
  * - Decoder thread: Normal priority (MP3 only), runs ahead filling buffer
  *
+ * Signal Handling:
+ * - SIGTERM/SIGINT: Sets stop_requested flag, immediately turns off all LEDs
+ * - Threads check stop_requested after each sleep and exit gracefully
+ * - Main thread waits for threads to join, then cleans up GPIO
+ *
  * For WAV files: mmap + mlock for hard real-time (no disk I/O during playback)
  * For MP3 files: Ring buffer with ~3 sec pre-buffer for soft real-time
  *
  * Capabilities required (non-root execution):
- * - cap_sys_rawio:  GPIO memory mapping
+ * - cap_sys_rawio:  GPIO memory mapping (/dev/gpiomem access)
  * - cap_sys_nice:   SCHED_FIFO real-time scheduling
  */
 
@@ -54,9 +64,12 @@
 #include <syslog.h>
 #include <signal.h>
 #include <getopt.h>
+#include <sys/mman.h>
 
 #define MAX_SONG_NAME 64
 
+
+volatile sig_atomic_t stop_requested = 0;
 
 void signal_handler(int sig)
 {
@@ -64,9 +77,10 @@ void signal_handler(int sig)
     {
         case SIGINT:
         case SIGTERM:
-            printf("Shutdown...\n");
+            // Set flag for threads to check - they will exit their loops
+            stop_requested = 1;
+            // Turn off LEDs immediately (signal-safe GPIO write)
             gpio_all_off(led_lines, 8);
-            exit(EXIT_SUCCESS);
             break;
 
         //case SIGCHLD:
@@ -76,18 +90,30 @@ void signal_handler(int sig)
         // ignore it
         break;
         default:
-            printf("Unhandled signal %s\n", strsignal(sig));
             break;
     }
 }
 
 
 void print_usage(const char *prog) {
-    printf("Usage: %s [-v] [-m musicdir] [songname]\n", prog);
+    printf("Usage: %s [-v] [-m musicdir] [-s on|off] [songname]\n", prog);
     printf("  -v              Verbose mode (print GPIO timing stats)\n");
     printf("  -m musicdir     Music directory (default: /home/linux/music/)\n");
+    printf("  -s on|off       Turn all LEDs on or off and exit\n");
     printf("  songname        Play song directly (without .wav/.txt extension)\n");
     printf("  No args         Interactive menu mode\n");
+}
+
+// Turn all LEDs on
+static void gpio_all_on(const unsigned int *lines, int count) {
+    if (!gpio || gpio == MAP_FAILED)
+        return;
+    volatile uint32_t *GPSET0 = gpio + 0x1C / 4;
+    uint32_t mask = 0;
+    for (int i = 0; i < count; ++i)
+        mask |= (1u << lines[i]);
+    *GPSET0 = mask;
+    __sync_synchronize();
 }
 
 int main(int argc, char *argv[]) {
@@ -96,13 +122,17 @@ int main(int argc, char *argv[]) {
 
     // Parse command line options
     int opt;
-    while ((opt = getopt(argc, argv, "vm:h")) != -1) {
+    char *switch_mode = NULL;  // "on" or "off"
+    while ((opt = getopt(argc, argv, "vm:s:h")) != -1) {
         switch (opt) {
             case 'v':
                 set_verbose_mode(1);
                 break;
             case 'm':
                 set_music_dir(optarg);
+                break;
+            case 's':
+                switch_mode = optarg;
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -116,6 +146,25 @@ int main(int argc, char *argv[]) {
     printf("Initializing GPIO...\n");
     gpio_init();
     gpio_set_outputs(led_lines, 8);
+
+    // Handle -s on/off switch mode
+    if (switch_mode != NULL) {
+        if (strcmp(switch_mode, "on") == 0) {
+            printf("Turning all LEDs ON\n");
+            gpio_all_on(led_lines, 8);
+        } else if (strcmp(switch_mode, "off") == 0) {
+            printf("Turning all LEDs OFF\n");
+            gpio_all_off(led_lines, 8);
+        } else {
+            fprintf(stderr, "Invalid switch mode: %s (use 'on' or 'off')\n", switch_mode);
+            gpio_cleanup();
+            return 1;
+        }
+        gpio_cleanup();
+        closelog();
+        return 0;
+    }
+
     gpio_all_off(led_lines, 8);
 
     // add signal handlers
@@ -187,6 +236,9 @@ int main(int argc, char *argv[]) {
 	    }
 
     }
+
+    // Ensure all LEDs are off before cleanup
+    gpio_all_off(led_lines, 8);
 
     gpio_cleanup();
     printf("GPIO cleaned up. Goodbye.\n");
